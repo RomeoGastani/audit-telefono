@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#4f7df0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js 'sha256-OQOhVFMe5ML4JCmLNTNwvCf0u3WmONq3NwOQxEtUOGI='; style-src 'unsafe-inline'; img-src blob: data:; connect-src https://0.peerjs.com wss://0.peerjs.com; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
 <title>AudIt · Manda le foto</title>
 <style>
 :root{--bg:#f6f7fb;--card:#fff;--fg:#181b24;--dim:#6a7085;--ac:#4f7df0;--ok:#2fb67a;--err:#e5484d;--line:#e3e6ef}
@@ -47,20 +49,27 @@ input{display:none}
     <span id="shootTx">Scatta una foto</span>
   </button>
   <button class="alt" id="pick" type="button" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="14" height="14" rx="2"/><path d="M7 2.5h12.5a2 2 0 0 1 2 2V17"/><path d="M3 15l4-4 4 4 2-2 4 4"/></svg><span id="pickTx">Importa foto già scattate</span><small id="pickSub">anche tante insieme, o un PDF</small></button>
-  <p class="hint">Inquadra il foglio dall'alto, con buona luce. Va bene anche storto: AudIt lo raddrizza. Le foto vanno direttamente al computer e non restano su nessun server.</p>
+  <p class="hint">Inquadra il foglio dall'alto, con buona luce. Va bene anche storto: AudIt lo raddrizza. Le foto vanno direttamente al computer, cifrate con una chiave che sta solo nel QR, e non restano su nessun server.</p>
   <ul id="list"></ul>
   <input id="cam" type="file" accept="image/*" capture="environment">
   <input id="gal" type="file" accept="image/*,application/pdf" multiple>
 </main>
-<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js" integrity="sha384-nlUQ8ZqCbvStErob+biJNzSgltf6urV3VGqhfIfzhmg9RXmpeRm76ELw0pYnKlTR" crossorigin="anonymous"></script>
 <script>
 const $ = s => document.querySelector(s), [h0, ...flags] = location.hash.slice(1).split('&'), id = decodeURIComponent(h0), any = flags.includes('f'), items = new Map();
+// the key is in the QR, after # (the browser never sends it anywhere): every file is encrypted with it, so only that computer can read it
+const k64 = (flags.find(x => x.startsWith('k=')) || '').slice(2), aad = new TextEncoder().encode(id);
+const keyP = /^[\w-]{43}$/.test(k64) ? crypto.subtle.importKey('raw', Uint8Array.from(atob(k64.replace(/-/g, '+').replace(/_/g, '/') + '='), c => c.charCodeAt(0)), 'AES-GCM', false, ['encrypt']) : null;
+const enc = async bytes => { const iv = crypto.getRandomValues(new Uint8Array(12)); return {iv: iv.buffer, ct: await crypto.subtle.encrypt({name: 'AES-GCM', iv, additionalData: aad}, await keyP, bytes)}; };
+const dev = () => /iPhone/.test(navigator.userAgent) ? 'iPhone' : /iPad/.test(navigator.userAgent) ? 'iPad' : /Android/.test(navigator.userAgent) ? 'Android' : 'telefono';
+let trusted = false, opened = false;
 // opened from «Ricevi file»: any file, sent as it is
-if (any) { $('#gal').removeAttribute('accept'); $('#pickTx').textContent = 'Manda dei file'; $('#pickSub').textContent = 'foto, PDF, audio, documenti: qualsiasi file, anche tanti insieme'; $('.hint').textContent = 'Scegli i file o scatta una foto: arrivano direttamente al computer, nella lezione aperta in AudIt, e non restano su nessun server.'; }
+if (any) { $('#gal').removeAttribute('accept'); $('#pickTx').textContent = 'Manda dei file'; $('#pickSub').textContent = 'foto, PDF, audio, documenti: qualsiasi file, anche tanti insieme'; $('.hint').textContent = 'Scegli i file o scatta una foto: arrivano direttamente al computer, nella lezione aperta in AudIt, cifrati con una chiave che sta solo nel QR, e non restano su nessun server.'; }
 let peer = null, conn = null, sent = 0, tries = 0;
 function say(t, k) { $('#say').textContent = t; $('#st').className = 'st' + (k ? ' ' + k : ''); const on = k === 'on'; $('#shoot').disabled = $('#pick').disabled = !on; }
 function connect() {
-  if (!/^audit-[0-9a-f]{20}$/.test(id)) return say('Apri questa pagina inquadrando il QR in AudIt: Scansiona un foglio → Dal telefono.', 'err');
+  if (!/^audit-[0-9a-f]{20}$/.test(id)) return say('Apri questa pagina inquadrando il QR in AudIt: Ricevi file → Dal telefono.', 'err');
+  if (!keyP || !window.crypto?.subtle) return say('Questo QR non ha la chiave di sicurezza: aggiorna AudIt e inquadra il nuovo QR.', 'err');
   if (!window.Peer) return say('Non riesco a caricare il collegamento: controlla la connessione e ricarica la pagina.', 'err');
   if (!peer || peer.destroyed) {
     peer = new Peer();
@@ -68,10 +77,10 @@ function connect() {
     peer.on('disconnected', () => { try { peer.reconnect(); } catch {} });
   }
   const go = () => {
-    conn = peer.connect(id, {reliable: true});
-    conn.on('open', () => { tries = 0; say('Collegato al computer: scatta pure', 'on'); });
-    conn.on('data', d => { const it = items.get(d?.id); if (it) mark(it, d.k === 'ok' ? 'ok' : 'err', d.k === 'ok' ? 'Arrivata ✓' : 'Non letta'); if (d?.k === 'ok') { sent++; $('#shootTx').textContent = 'Scatta la prossima'; } });
-    conn.on('close', () => { say('Collegamento chiuso. Riprovo…'); retry(); });
+    opened = false; conn = peer.connect(id, {reliable: true});
+    conn.on('open', async () => { tries = 0; opened = true; say('Controllo la chiave…'); try { conn.send({k: 'hi', ...await enc(new TextEncoder().encode(JSON.stringify({hi: 'audit:' + id, dev: dev()})))}); } catch { say('Non riesco a usare la chiave del QR.', 'err'); } });
+    conn.on('data', d => { if (d?.k === 'hi-ok') { trusted = true; return say('Collegato al computer in modo sicuro: manda pure', 'on'); } const it = items.get(d?.id); if (it) mark(it, d.k === 'ok' ? 'ok' : 'err', d.k === 'ok' ? 'Arrivata ✓' : 'Non letta'); if (d?.k === 'ok') { sent++; $('#shootTx').textContent = 'Scatta la prossima'; } });
+    conn.on('close', () => { if (opened && !trusted) return say('Il computer ha rifiutato il collegamento: in AudIt apri un nuovo QR e inquadralo.', 'err'); trusted = false; say('Collegamento chiuso. Riprovo…'); retry(); });
   };
   peer.open ? go() : peer.once('open', go);
 }
@@ -93,8 +102,10 @@ async function send(files) {
     if (li.querySelector('img')) li.querySelector('img').src = URL.createObjectURL(f);
     $('#list').prepend(li); const it = {li}; items.set(key, it);
     try {
-      const s = await shrink(f); if (!conn?.open) throw new Error('scollegato');
-      conn.send({k: 'file', id: key, name: s.name, type: s.type, data: await s.blob.arrayBuffer()});
+      const s = await shrink(f); if (!conn?.open || !trusted) throw new Error('scollegato');
+      const m = new TextEncoder().encode(JSON.stringify({name: s.name, type: s.type})), data = new Uint8Array(await s.blob.arrayBuffer()), b = new Uint8Array(4 + m.length + data.length);
+      new DataView(b.buffer).setUint32(0, m.length, true); b.set(m, 4); b.set(data, 4 + m.length);
+      conn.send({k: 'file', id: key, ...await enc(b)});
     } catch { mark(it, 'err', 'Non inviata'); }
   }
 }
