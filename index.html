@@ -46,7 +46,7 @@ input{display:none}
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.6"/></svg>
     <span id="shootTx">Scatta una foto</span>
   </button>
-  <button class="alt" id="pick" type="button" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="14" height="14" rx="2"/><path d="M7 2.5h12.5a2 2 0 0 1 2 2V17"/><path d="M3 15l4-4 4 4 2-2 4 4"/></svg>Importa foto già scattate<small>anche tante insieme, o un PDF</small></button>
+  <button class="alt" id="pick" type="button" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="14" height="14" rx="2"/><path d="M7 2.5h12.5a2 2 0 0 1 2 2V17"/><path d="M3 15l4-4 4 4 2-2 4 4"/></svg><span id="pickTx">Importa foto già scattate</span><small id="pickSub">anche tante insieme, o un PDF</small></button>
   <p class="hint">Inquadra il foglio dall'alto, con buona luce. Va bene anche storto: AudIt lo raddrizza. Le foto vanno direttamente al computer e non restano su nessun server.</p>
   <ul id="list"></ul>
   <input id="cam" type="file" accept="image/*" capture="environment">
@@ -54,7 +54,9 @@ input{display:none}
 </main>
 <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <script>
-const $ = s => document.querySelector(s), id = decodeURIComponent(location.hash.slice(1)), items = new Map();
+const $ = s => document.querySelector(s), [h0, ...flags] = location.hash.slice(1).split('&'), id = decodeURIComponent(h0), any = flags.includes('f'), items = new Map();
+// opened from «Ricevi file»: any file, sent as it is
+if (any) { $('#gal').removeAttribute('accept'); $('#pickTx').textContent = 'Manda dei file'; $('#pickSub').textContent = 'foto, PDF, audio, documenti: qualsiasi file, anche tanti insieme'; $('.hint').textContent = 'Scegli i file o scatta una foto: arrivano direttamente al computer, nella lezione aperta in AudIt, e non restano su nessun server.'; }
 let peer = null, conn = null, sent = 0, tries = 0;
 function say(t, k) { $('#say').textContent = t; $('#st').className = 'st' + (k ? ' ' + k : ''); const on = k === 'on'; $('#shoot').disabled = $('#pick').disabled = !on; }
 function connect() {
@@ -77,7 +79,7 @@ function retry() { if (++tries > 5) return say('Non riesco a collegarmi: in AudI
 function mark(it, cls, tx) { it.li.className = cls || ''; it.li.querySelector('span').textContent = tx; }
 // photos are shrunk to 3200 px: sharp enough for the scan, quick to send
 async function shrink(f) {
-  if (!/^image\//.test(f.type)) return {blob: f, type: f.type || 'application/pdf', name: f.name};
+  if (any || !/^image\//.test(f.type)) return {blob: f, type: f.type || (any ? '' : 'application/pdf'), name: f.name || 'file'};
   try {
     const b = await createImageBitmap(f), k = Math.min(1, 3200 / Math.max(b.width, b.height)), c = document.createElement('canvas');
     c.width = Math.round(b.width * k); c.height = Math.round(b.height * k); c.getContext('2d').drawImage(b, 0, 0, c.width, c.height); b.close?.();
@@ -87,7 +89,7 @@ async function shrink(f) {
 async function send(files) {
   for (const f of files) {
     const key = Date.now() + '-' + Math.random().toString(36).slice(2, 7), li = document.createElement('li');
-    li.innerHTML = /^image\//.test(f.type) ? `<img alt="">` : `<div class="pdf">PDF</div>`; li.append(Object.assign(document.createElement('span'), {textContent: 'Invio…'}));
+    li.innerHTML = /^image\//.test(f.type) ? `<img alt="">` : `<div class="pdf">${((f.name || '').match(/\.(\w{1,5})$/)?.[1] || 'file').toUpperCase()}</div>`; li.append(Object.assign(document.createElement('span'), {textContent: 'Invio…'}));
     if (li.querySelector('img')) li.querySelector('img').src = URL.createObjectURL(f);
     $('#list').prepend(li); const it = {li}; items.set(key, it);
     try {
