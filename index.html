@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#4f7df0">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js 'sha256-OQOhVFMe5ML4JCmLNTNwvCf0u3WmONq3NwOQxEtUOGI='; style-src 'unsafe-inline'; img-src blob: data:; connect-src https://0.peerjs.com wss://0.peerjs.com; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js 'sha256-dpwNEIhWunncwuXsmIzKU3fIKzxaPZHuqLAOmNDZGI8='; style-src 'unsafe-inline'; img-src blob: data:; connect-src https://0.peerjs.com wss://0.peerjs.com; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <title>AudIt · Manda le foto</title>
 <style>
@@ -20,6 +20,8 @@ h1{font-size:20px;margin:0;text-wrap:balance}
 .st i{width:10px;height:10px;border-radius:50%;background:var(--dim);flex:none;transition:background .3s}
 .st.on i{background:var(--ok);box-shadow:0 0 0 4px color-mix(in srgb,var(--ok) 25%,transparent)}
 .st.err i{background:var(--err)}
+[hidden]{display:none!important}
+.again{justify-content:center;min-height:44px}
 .big{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;min-height:34vh;border:0;border-radius:24px;background:var(--ac);color:#fff;font-family:inherit;font-size:22px;font-weight:600;line-height:1.2;cursor:pointer;transition:transform .15s,opacity .2s}
 .big:active{transform:scale(.98)}
 .big svg{width:64px;height:64px}
@@ -44,6 +46,7 @@ input{display:none}
     <h1>Manda ad AudIt</h1>
   </header>
   <div class="st" id="st" role="status"><i></i><span id="say">Mi collego al computer…</span></div>
+  <button class="alt again" id="again" type="button" hidden>Riprova</button>
   <button class="big" id="shoot" type="button" disabled>
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.6"/></svg>
     <span id="shootTx">Scatta una foto</span>
@@ -65,26 +68,37 @@ const dev = () => /iPhone/.test(navigator.userAgent) ? 'iPhone' : /iPad/.test(na
 let trusted = false, opened = false;
 // opened from «Ricevi file»: any file, sent as it is
 if (any) { $('#gal').removeAttribute('accept'); $('#pickTx').textContent = 'Manda dei file'; $('#pickSub').textContent = 'foto, PDF, audio, documenti: qualsiasi file, anche tanti insieme'; $('.hint').textContent = 'Scegli i file o scatta una foto: arrivano direttamente al computer, nella lezione aperta in AudIt, cifrati con una chiave che sta solo nel QR, e non restano su nessun server.'; }
-let peer = null, conn = null, sent = 0, tries = 0;
-function say(t, k) { $('#say').textContent = t; $('#st').className = 'st' + (k ? ' ' + k : ''); const on = k === 'on'; $('#shoot').disabled = $('#pick').disabled = !on; }
+let peer = null, conn = null, sent = 0, tries = 0, wd = 0, lastErr = '', dead = false;
+// more ways to find a route between phone and computer (PeerJS's own relay stays as the last resort)
+const ICE = {iceServers: [{urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302']}, {urls: 'stun:stun.cloudflare.com:3478'}, {urls: ['turn:eu-0.turn.peerjs.com:3478', 'turn:us-0.turn.peerjs.com:3478'], username: 'peerjs', credential: 'peerjsp'}], sdpSemantics: 'unified-plan'};
+const NET = 'Il telefono trova il computer ma non riesce a raggiungerlo direttamente. Succede quando sono su reti diverse (telefono in 4G/5G, Wi-Fi dell\'università): collega il telefono allo stesso Wi-Fi del computer e premi Riprova.';
+// every step has a time limit, so the page never stays stuck without saying why
+function fail(t) { dead = true; clearTimeout(wd); say(t, 'err'); $('#again').hidden = false; }
+function watch(ms, t) { clearTimeout(wd); wd = setTimeout(() => fail(t), ms); }
+function say(t, k) { if (k !== 'err') $('#again').hidden = true; $('#say').textContent = t; $('#st').className = 'st' + (k ? ' ' + k : ''); const on = k === 'on'; $('#shoot').disabled = $('#pick').disabled = !on; }
 function connect() {
+  if (dead) return;
   if (!/^audit-[0-9a-f]{20}$/.test(id)) return say('Apri questa pagina inquadrando il QR in AudIt: Ricevi file → Dal telefono.', 'err');
   if (!keyP || !window.crypto?.subtle) return say('Questo QR non ha la chiave di sicurezza: aggiorna AudIt e inquadra il nuovo QR.', 'err');
   if (!window.Peer) return say('Non riesco a caricare il collegamento: controlla la connessione e ricarica la pagina.', 'err');
   if (!peer || peer.destroyed) {
-    peer = new Peer();
-    peer.on('error', e => { if (e.type === 'peer-unavailable') say('Il computer non risponde: in AudIt riapri «Dal telefono» e inquadra il nuovo QR.', 'err'); else retry(); });
+    peer = new Peer({config: ICE}); say('Raggiungo il servizio che mette in contatto telefono e computer…');
+    if (!tries) watch(15e3, 'Non raggiungo il servizio che mette in contatto telefono e computer (peerjs.com). Controlla internet sul telefono o prova un\'altra rete, poi premi Riprova.');
+    peer.on('error', e => { lastErr = e.type || e.message || ''; if (e.type === 'peer-unavailable') fail('Il computer non risponde: in AudIt riapri «Dal telefono» e inquadra il nuovo QR.'); else if (e.type === 'browser-incompatible') fail('Questo browser non permette il collegamento diretto: apri il link con Safari o Chrome.'); else retry(); });
     peer.on('disconnected', () => { try { peer.reconnect(); } catch {} });
   }
   const go = () => {
-    opened = false; conn = peer.connect(id, {reliable: true});
-    conn.on('open', async () => { tries = 0; opened = true; say('Controllo la chiave…'); try { conn.send({k: 'hi', ...await enc(new TextEncoder().encode(JSON.stringify({hi: 'audit:' + id, dev: dev()})))}); } catch { say('Non riesco a usare la chiave del QR.', 'err'); } });
-    conn.on('data', d => { if (d?.k === 'hi-ok') { trusted = true; return say('Collegato al computer in modo sicuro: manda pure', 'on'); } const it = items.get(d?.id); if (it) mark(it, d.k === 'ok' ? 'ok' : 'err', d.k === 'ok' ? 'Arrivata ✓' : 'Non letta'); if (d?.k === 'ok') { sent++; $('#shootTx').textContent = 'Scatta la prossima'; } });
-    conn.on('close', () => { if (opened && !trusted) return say('Il computer ha rifiutato il collegamento: in AudIt apri un nuovo QR e inquadralo.', 'err'); trusted = false; say('Collegamento chiuso. Riprovo…'); retry(); });
+    opened = false; conn = peer.connect(id, {reliable: true}); say('Cerco il computer…'); watch(25e3, NET);
+    const pc = conn.peerConnection;
+    pc?.addEventListener('iceconnectionstatechange', () => { const x = pc.iceConnectionState; if (x === 'checking' && !opened) say('Apro il canale diretto col computer…'); if (x === 'failed') fail(NET); });
+    conn.on('open', async () => { tries = 0; opened = true; say('Controllo la chiave…'); watch(15e3, 'Il computer non ha confermato la chiave: in AudIt premi «Nuovo QR» e inquadralo.'); try { conn.send({k: 'hi', ...await enc(new TextEncoder().encode(JSON.stringify({hi: 'audit:' + id, dev: dev()})))}); } catch { say('Non riesco a usare la chiave del QR.', 'err'); } });
+    conn.on('data', d => { if (d?.k === 'hi-ok') { trusted = true; clearTimeout(wd); return say('Collegato al computer in modo sicuro: manda pure', 'on'); } const it = items.get(d?.id); if (it) mark(it, d.k === 'ok' ? 'ok' : 'err', d.k === 'ok' ? 'Arrivata ✓' : 'Non letta'); if (d?.k === 'ok') { sent++; $('#shootTx').textContent = 'Scatta la prossima'; } });
+    conn.on('close', () => { if ($('#again').hidden === false) return; if (opened && !trusted) return fail('Il computer ha rifiutato il collegamento: in AudIt apri un nuovo QR e inquadralo.'); trusted = false; say('Collegamento chiuso. Riprovo…'); retry(); });
   };
   peer.open ? go() : peer.once('open', go);
 }
-function retry() { if (++tries > 5) return say('Non riesco a collegarmi: in AudIt riapri «Dal telefono» e inquadra il nuovo QR.', 'err'); setTimeout(connect, 1500 * tries); }
+function retry() { if (dead) return; if (++tries > 5) return fail('Non riesco a collegarmi' + (lastErr ? ` (${lastErr})` : '') + ': controlla internet sul telefono, poi premi Riprova.'); setTimeout(connect, 1500 * tries); }
+$('#again').onclick = () => { dead = false; $('#again').hidden = true; tries = 0; lastErr = ''; clearTimeout(wd); try { conn?.close(); } catch {} try { peer?.destroy(); } catch {} conn = peer = null; trusted = opened = false; connect(); };
 function mark(it, cls, tx) { it.li.className = cls || ''; it.li.querySelector('span').textContent = tx; }
 // photos are shrunk to 3200 px: sharp enough for the scan, quick to send
 async function shrink(f) {
