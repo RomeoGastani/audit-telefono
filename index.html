@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#4f7df0">
+<title>AudIt · Manda le foto</title>
+<style>
+:root{--bg:#f6f7fb;--card:#fff;--fg:#181b24;--dim:#6a7085;--ac:#4f7df0;--ok:#2fb67a;--err:#e5484d;--line:#e3e6ef}
+@media (prefers-color-scheme:dark){:root{--bg:#12141a;--card:#1c1f28;--fg:#eceef4;--dim:#9aa1b5;--line:#2c3040}}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-variant-numeric:tabular-nums;-webkit-tap-highlight-color:transparent}
+main{max-width:520px;margin:0 auto;padding:max(16px,env(safe-area-inset-top)) 16px max(24px,env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:16px;min-height:100dvh}
+header{display:flex;align-items:center;gap:10px}
+header svg{width:34px;height:34px;flex:none}
+h1{font-size:20px;margin:0;text-wrap:balance}
+.st{display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:14px;background:var(--card);border:1px solid var(--line);font-size:14px}
+.st i{width:10px;height:10px;border-radius:50%;background:var(--dim);flex:none;transition:background .3s}
+.st.on i{background:var(--ok);box-shadow:0 0 0 4px color-mix(in srgb,var(--ok) 25%,transparent)}
+.st.err i{background:var(--err)}
+.big{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;min-height:34vh;border:0;border-radius:24px;background:var(--ac);color:#fff;font-family:inherit;font-size:22px;font-weight:600;line-height:1.2;cursor:pointer;transition:transform .15s,opacity .2s}
+.big:active{transform:scale(.98)}
+.big svg{width:64px;height:64px}
+.big[disabled]{opacity:.45}
+.alt{display:flex;flex-direction:column;align-items:center;gap:4px;padding:18px 16px;border-radius:16px;border:1px solid var(--line);background:var(--card);color:var(--fg);font-family:inherit;font-size:17px;font-weight:500;cursor:pointer}
+.alt[disabled]{opacity:.45}
+.alt svg{width:30px;height:30px;color:var(--ac)}.alt small{color:var(--dim);font-size:13px;font-weight:400}
+.hint{color:var(--dim);font-size:14px;margin:0;text-wrap:pretty}
+ul{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+li{position:relative;aspect-ratio:3/4;border-radius:12px;overflow:hidden;background:var(--card);border:1px solid var(--line)}
+li img{width:100%;height:100%;object-fit:cover;display:block}
+li span{position:absolute;left:6px;right:6px;bottom:6px;padding:3px 6px;border-radius:8px;font-size:12px;text-align:center;background:rgba(0,0,0,.6);color:#fff}
+li.ok span{background:var(--ok)}li.err span{background:var(--err)}
+li .pdf{display:grid;place-items:center;height:100%;font-weight:700;color:var(--dim)}
+input{display:none}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <svg viewBox="0 0 24 24" fill="none" stroke="var(--ac)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 18a4.5 4.5 0 0 1-.6-9A6 6 0 0 1 18 9.5a4 4 0 0 1-.5 8.5z"/><path d="M8.5 14l1.5-3 2 4 1.5-3 1 2"/></svg>
+    <h1>Manda ad AudIt</h1>
+  </header>
+  <div class="st" id="st" role="status"><i></i><span id="say">Mi collego al computer…</span></div>
+  <button class="big" id="shoot" type="button" disabled>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.6"/></svg>
+    <span id="shootTx">Scatta una foto</span>
+  </button>
+  <button class="alt" id="pick" type="button" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="14" height="14" rx="2"/><path d="M7 2.5h12.5a2 2 0 0 1 2 2V17"/><path d="M3 15l4-4 4 4 2-2 4 4"/></svg>Importa foto già scattate<small>anche tante insieme, o un PDF</small></button>
+  <p class="hint">Inquadra il foglio dall'alto, con buona luce. Va bene anche storto: AudIt lo raddrizza. Le foto vanno direttamente al computer e non restano su nessun server.</p>
+  <ul id="list"></ul>
+  <input id="cam" type="file" accept="image/*" capture="environment">
+  <input id="gal" type="file" accept="image/*,application/pdf" multiple>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script>
+const $ = s => document.querySelector(s), id = decodeURIComponent(location.hash.slice(1)), items = new Map();
+let peer = null, conn = null, sent = 0, tries = 0;
+function say(t, k) { $('#say').textContent = t; $('#st').className = 'st' + (k ? ' ' + k : ''); const on = k === 'on'; $('#shoot').disabled = $('#pick').disabled = !on; }
+function connect() {
+  if (!/^audit-[0-9a-f]{20}$/.test(id)) return say('Apri questa pagina inquadrando il QR in AudIt: Scansiona un foglio → Dal telefono.', 'err');
+  if (!window.Peer) return say('Non riesco a caricare il collegamento: controlla la connessione e ricarica la pagina.', 'err');
+  if (!peer || peer.destroyed) {
+    peer = new Peer();
+    peer.on('error', e => { if (e.type === 'peer-unavailable') say('Il computer non risponde: in AudIt riapri «Dal telefono» e inquadra il nuovo QR.', 'err'); else retry(); });
+    peer.on('disconnected', () => { try { peer.reconnect(); } catch {} });
+  }
+  const go = () => {
+    conn = peer.connect(id, {reliable: true});
+    conn.on('open', () => { tries = 0; say('Collegato al computer: scatta pure', 'on'); });
+    conn.on('data', d => { const it = items.get(d?.id); if (it) mark(it, d.k === 'ok' ? 'ok' : 'err', d.k === 'ok' ? 'Arrivata ✓' : 'Non letta'); if (d?.k === 'ok') { sent++; $('#shootTx').textContent = 'Scatta la prossima'; } });
+    conn.on('close', () => { say('Collegamento chiuso. Riprovo…'); retry(); });
+  };
+  peer.open ? go() : peer.once('open', go);
+}
+function retry() { if (++tries > 5) return say('Non riesco a collegarmi: in AudIt riapri «Dal telefono» e inquadra il nuovo QR.', 'err'); setTimeout(connect, 1500 * tries); }
+function mark(it, cls, tx) { it.li.className = cls || ''; it.li.querySelector('span').textContent = tx; }
+// photos are shrunk to 3200 px: sharp enough for the scan, quick to send
+async function shrink(f) {
+  if (!/^image\//.test(f.type)) return {blob: f, type: f.type || 'application/pdf', name: f.name};
+  try {
+    const b = await createImageBitmap(f), k = Math.min(1, 3200 / Math.max(b.width, b.height)), c = document.createElement('canvas');
+    c.width = Math.round(b.width * k); c.height = Math.round(b.height * k); c.getContext('2d').drawImage(b, 0, 0, c.width, c.height); b.close?.();
+    const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', .9)); return {blob, type: 'image/jpeg', name: (f.name || 'foto').replace(/\.\w+$/, '') + '.jpg'};
+  } catch { return {blob: f, type: f.type, name: f.name || 'foto.jpg'}; }
+}
+async function send(files) {
+  for (const f of files) {
+    const key = Date.now() + '-' + Math.random().toString(36).slice(2, 7), li = document.createElement('li');
+    li.innerHTML = /^image\//.test(f.type) ? `<img alt="">` : `<div class="pdf">PDF</div>`; li.append(Object.assign(document.createElement('span'), {textContent: 'Invio…'}));
+    if (li.querySelector('img')) li.querySelector('img').src = URL.createObjectURL(f);
+    $('#list').prepend(li); const it = {li}; items.set(key, it);
+    try {
+      const s = await shrink(f); if (!conn?.open) throw new Error('scollegato');
+      conn.send({k: 'file', id: key, name: s.name, type: s.type, data: await s.blob.arrayBuffer()});
+    } catch { mark(it, 'err', 'Non inviata'); }
+  }
+}
+$('#shoot').onclick = () => $('#cam').click();
+$('#pick').onclick = () => $('#gal').click();
+for (const i of [$('#cam'), $('#gal')]) i.onchange = () => { if (i.files.length) send([...i.files]); i.value = ''; };
+document.addEventListener('visibilitychange', () => { if (!document.hidden && !conn?.open && !/err/.test($('#st').className)) connect(); });
+connect();
+</script>
+</body>
+</html>
