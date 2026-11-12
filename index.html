@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#4f7df0">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js 'sha256-EgLIqhYVz//G0RjqF85qpwxkxkl29qernkQqFGfeaPw='; style-src 'unsafe-inline'; img-src blob: data:; connect-src https://0.peerjs.com wss://0.peerjs.com; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js 'sha256-iiO0ks9dHHEgSwYhsZLR1rAK58ZGcjnv7NfUTCIbXlk='; style-src 'unsafe-inline'; img-src blob: data:; connect-src https://0.peerjs.com wss://0.peerjs.com; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <title>AudIt · Manda le foto</title>
 <style>
@@ -69,9 +69,9 @@ let trusted = false, opened = false;
 // opened from «Ricevi file»: any file, sent as it is
 if (any) { $('#gal').removeAttribute('accept'); $('#pickTx').textContent = 'Manda dei file'; $('#pickSub').textContent = 'foto, PDF, audio, documenti: qualsiasi file, anche tanti insieme'; $('.hint').textContent = 'Scegli i file o scatta una foto: arrivano direttamente al computer, nella lezione aperta in AudIt, cifrati con una chiave che sta solo nel QR, e non restano su nessun server.'; }
 let peer = null, conn = null, sent = 0, tries = 0, wd = 0, lastErr = '', dead = false;
-// more ways to find a route between phone and computer (PeerJS's own relay stays as the last resort)
-const ICE = {iceServers: [{urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302']}, {urls: 'stun:stun.cloudflare.com:3478'}, {urls: ['turn:eu-0.turn.peerjs.com:3478', 'turn:us-0.turn.peerjs.com:3478'], username: 'peerjs', credential: 'peerjsp'}], sdpSemantics: 'unified-plan'};
-const NET = 'Il telefono trova il computer ma non riesce a raggiungerlo direttamente. Succede quando sono su reti diverse (telefono in 4G/5G, Wi-Fi dell\'università): collega il telefono allo stesso Wi-Fi del computer e premi Riprova. Se siete già sullo stesso Wi-Fi, la rete non lascia parlare i dispositivi tra loro: in AudIt apri «Se il telefono non si collega», attiva il ponte e inquadra il nuovo QR.';
+// ways to find a direct route between phone and computer: never a relay, files only go from here to the computer
+const ICE = {iceServers: [{urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302']}, {urls: 'stun:stun.cloudflare.com:3478'}], sdpSemantics: 'unified-plan'};
+const NET = 'Il telefono trova il computer ma non riesce a raggiungerlo direttamente. Succede quando sono su reti diverse (telefono in 4G/5G, Wi-Fi dell\'università): collega il telefono allo stesso Wi-Fi del computer e premi Riprova. Se siete già sullo stesso Wi-Fi: in AudIt apri «Se il telefono non si collega», premi «Consenti e riprova» e inquadra il nuovo QR.';
 // every step has a time limit, so the page never stays stuck without saying why
 function fail(t) { dead = true; clearTimeout(wd); say(t, 'err'); $('#again').hidden = false; }
 function watch(ms, t) { clearTimeout(wd); wd = setTimeout(() => fail(t), ms); }
